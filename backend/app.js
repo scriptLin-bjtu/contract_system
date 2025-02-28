@@ -5,11 +5,11 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
+const cookieParser = require('cookie-parser');
 const app = express();
-
 const PORT = process.env.PORT || 3001;
 const SECRET_KEY = 'my_jwt_secret';
-
+app.use(cookieParser()); 
 app.use(bodyParser.json());
 //Mysql数据库连接
 const db = mysql.createConnection({
@@ -28,7 +28,8 @@ db.connect(err => {
 });
 //token处理
 const authenticateJWT = (req, res, next) => {
-    const token = req.headers['authorization'];
+    const token = req.cookies.token;
+    
     if (!token) {
         return res.status(401).json({ code: 401, message: '认证失败，请重新登录' });
     }
@@ -61,8 +62,22 @@ app.post('/api/login', (req, res) => {
             return res.status(401).json({ code: 401, message: '用户名或密码错误' });
         }
 
-        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
-        res.json({ code: 200, data: { token } });
+        const token = jwt.sign(
+            { id: user.id, username: user.username, role: user.role },
+            SECRET_KEY,
+            { expiresIn: '1h' }
+        );
+
+        // 设置Cookie（关键修改）
+        res.cookie('token', token, {
+            maxAge: 3600000, // 1小时（与JWT过期时间一致）
+            httpOnly: true,  // 防止XSS
+            secure: process.env.NODE_ENV === 'production', // 生产环境启用HTTPS
+            sameSite: 'strict' // 防御CSRF
+        });
+
+        // 返回成功响应（不再需要返回token）
+        res.json({ code: 200, data: { message: '登录成功' } });
     });
 });
 app.post('/api/register', async (req, res) => {
@@ -96,6 +111,17 @@ app.post('/api/register', async (req, res) => {
             
         });
     });
+});
+app.post('/api/logout', (req, res) => {
+    // 清除 token cookie
+    res.cookie('token', '', {
+        httpOnly: true,   // 防止 JavaScript 访问该 cookie
+        secure: process.env.NODE_ENV === 'production', // 生产环境启用 HTTPS
+        expires: new Date(0),  // 设置过期时间为 1970 年 1 月 1 日
+        sameSite: 'strict' // 防止 CSRF 攻击
+    });
+    // 返回登出成功的响应
+    res.json({ code: 200, data: { message: '登出成功' } });
 });
 
 
